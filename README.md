@@ -10,7 +10,7 @@ Como executar o bot em 6 passos:
 
 3.1° Passo Para instalar as dependências você irá abrir o terminal no editor de códigos ("Ctrl Shift +" se você optar pelo VS Code) e digitara: npm install nome_da_dependência.
 
-4° Passo Para executar o bot entre no terminal do projeto e escreva: node index.js.
+4° Passo Para executar o bot entre na pasta do projeto e execute o arquivo executavel, se o executavel não funcionar entre no terminal do projeto e escreva: node index.js.
 
 5° Passo Aproveite o bot.
 
