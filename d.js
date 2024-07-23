@@ -1,8 +1,25 @@
 const tmi = require('tmi.js');
 const nodemailer = require('nodemailer');
 const sqlite3 = require('sqlite3').verbose();
+const OBSWebSocket = require('obs-websocket-js').default;
+const obs = new OBSWebSocket();
+
+let isObsConnected = false;
+
+obs.connect({
+    address: 'ws://localhost:9999',
+    password: 'obsteste123'
+})
+    .then(() => {
+        console.log('Conectado ao OBS WebSocket');
+        isObsConnected = true;
+    })
+    .catch(err => {
+        console.error('Erro ao conectar ao OBS WebSocket:', err);
+    });
 
 const { channel, channel2, channel3, username, password, emailConfig } = require('./settings.json');
+
 // Conexão com o banco de dados para os pontos
 const db = new sqlite3.Database('./DB/points.db', (err) => {
     if (err) {
@@ -63,6 +80,8 @@ const options = {
     channels: [channel, channel2, channel3]
 };
 
+let deaths = 0; // Inicializa o contador de mortes
+
 let lastMessageTimestamp = {};
 const DEBOUNCE_TIME = 1000; // Tempo em milissegundos
 
@@ -93,7 +112,6 @@ client.on('message', (channel, tags, message, self) => {
         }
     }
 });
-
 
 /////////////////////////////////////////////////E-MAIL/////////////////////////////////////////////////////////
 
@@ -251,13 +269,35 @@ client.on('message', (channel, user, message, self) => {
     // Comando para aumentar o contador de mortes
     if (message.toLowerCase() === '+morte') {
         deathCount++;
-        client.say(channel, `O contador de mortes do indiano agora é: ${deathCount}`);
+        deaths++;
+        if (isObsConnected) {
+            updateDeathCounter();
+        } else {
+            console.error('OBS WebSocket não está conectado.');
+        }
+        client.say(channel, `O contador de mortes do indiano agora é: ${deaths}`);
         // Atualiza o banco de dados com o novo valor
         dbCount.run("UPDATE counter SET count = ? WHERE id = 1", [deathCount], (err) => {
             if (err) {
                 console.error(err.message);
             }
         });
+    }
+
+    // Função para atualizar o contador de mortes no OBS
+    function updateDeathCounter() {
+        obs.call('SetInputSettings', {
+            inputName: 'Death Counter', // Nome da sua fonte de texto no OBS
+            inputSettings: {
+                text: `Mortes: ${deaths}`
+            }
+        })
+            .then(() => {
+                console.log(`Número de mortes atualizado para ${deaths}`);
+            })
+            .catch(err => {
+                console.error('Erro ao atualizar o contador de mortes:', err);
+            });
     }
 
     // Comando para diminuir o contador de mortes
@@ -747,7 +787,7 @@ client.on('message', (channel, user, message, self) => {
 
     if (message.toLowerCase() === '!randomnome') {
         const nomes = ['Nego do Bordel', 'Ryu Indiano', 'Amante da Beiçola', 'Tommy Vercetti das Arabias', 'Fã N°1 do Xamuel', 'Porteiro de wakanda', 'meu indiano favorito', 'bahubali pt.2',
-            'emo indiano', 'indiano a professora e as crianças']; // Insira os nomes que você deseja randomizar
+            'emo indiano']; // Insira os nomes que você deseja randomizar
         const randomIndex = Math.floor(Math.random() * nomes.length);
         const randomNome = nomes[randomIndex];
         client.say(channel, `Toddyyz Streamer Streams, ou para os mais intimos ${randomNome}`);
