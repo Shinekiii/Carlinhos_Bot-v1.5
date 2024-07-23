@@ -1,20 +1,21 @@
-# Use uma imagem base do Node.js
-FROM node:14
+FROM node:18
 
-# Defina o diretório de trabalho no contêiner
+# Configura o diretório de trabalho
 WORKDIR /app
 
-# Copie o package.json e o package-lock.json para o diretório de trabalho
+# Copia os arquivos de configuração
 COPY package*.json ./
 
-# Instale as dependências do projeto
-RUN npm install
+# Instala as dependências
+RUN apt-get update && \
+    apt-get install -y build-essential python3 && \
+    npm install
 
-# Copie o restante do código da aplicação para o diretório de trabalho
+# Copia o código da aplicação
 COPY . .
 
-# Exponha a porta que sua aplicação irá rodar
+# Expõe a porta que o aplicativo usará
 EXPOSE 3000
 
-# Comando para iniciar a aplicação
+# Comando para iniciar o aplicativo
 CMD ["node", "index.js"]
