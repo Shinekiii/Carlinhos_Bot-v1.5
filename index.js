@@ -1,9 +1,11 @@
 const tmi = require('tmi.js');
 const nodemailer = require('nodemailer');
 const sqlite3 = require('sqlite3').verbose();
+const fetch = require('node-fetch');
 
 const { channel, channel2, channel3, username, password, emailConfig } = require('./settings.json');
-// Conexão com o banco de dados para os pontos
+
+// Conexão com os bancos de dados
 const db = new sqlite3.Database('./DB/points.db', (err) => {
     if (err) {
         console.error(err.message);
@@ -11,7 +13,6 @@ const db = new sqlite3.Database('./DB/points.db', (err) => {
     console.log('Conectado ao banco de dados de pontos.');
 });
 
-// Conexão com o banco de dados para os comandos personalizados
 const dbCommands = new sqlite3.Database('./DB/comandos_chat.db', (err) => {
     if (err) {
         console.error(err.message);
@@ -19,7 +20,6 @@ const dbCommands = new sqlite3.Database('./DB/comandos_chat.db', (err) => {
     console.log('Conectado ao banco de dados de comandos personalizados.');
 });
 
-// Conexão com o banco de dados para o contador
 const dbCount = new sqlite3.Database('./DB/counter.db', (err) => {
     if (err) {
         console.error(err.message);
@@ -27,27 +27,23 @@ const dbCount = new sqlite3.Database('./DB/counter.db', (err) => {
     console.log('Conectado ao banco de dados do contador.');
 });
 
-// Criação da tabela se ela não existir para o contador
 dbCount.run(`CREATE TABLE IF NOT EXISTS counter (
   id INTEGER PRIMARY KEY,
   count INTEGER DEFAULT 0
 )`);
 
-// Criação da tabela se ela não existir para os pontos
 db.run(`CREATE TABLE IF NOT EXISTS pontos (
   id INTEGER PRIMARY KEY,
   username TEXT NOT NULL UNIQUE,
   pontos INTEGER DEFAULT 0
 )`);
 
-// Criação da tabela se ela não existir para os comandos personalizados
 dbCommands.run(`CREATE TABLE IF NOT EXISTS comandos_chat (
   id INTEGER PRIMARY KEY,
   comando TEXT NOT NULL UNIQUE,
   resposta TEXT NOT NULL
 )`);
 
-// Mapa para armazenar comandos personalizados
 const customCommands = new Map();
 
 const options = {
@@ -64,36 +60,74 @@ const options = {
 };
 
 let lastMessageTimestamp = {};
-const DEBOUNCE_TIME = 1000; // Tempo em milissegundos
+const DEBOUNCE_TIME = 2000; // Tempo em milissegundos para o atraso de 2 segundos
 
 const client = new tmi.Client(options);
 client.connect().catch(console.error);
 
-////////////////////////////////////////////////INDICA/////////////////////////////////////////////////////////
+// Função para adicionar o atraso de 2 segundos
+function sendMessageWithDelay(channel, message) {
+    const now = Date.now();
+    if (!lastMessageTimestamp[channel] || now - lastMessageTimestamp[channel] >= DEBOUNCE_TIME) {
+        client.say(channel, message);
+        lastMessageTimestamp[channel] = now;
+    } else {
+        setTimeout(() => {
+            client.say(channel, message);
+            lastMessageTimestamp[channel] = Date.now();
+        }, DEBOUNCE_TIME - (now - lastMessageTimestamp[channel]));
+    }
+}
 
-client.on('message', (channel, tags, message, self) => {
-    // Verifica se a mensagem foi enviada por um moderador ou pelo streamer
-    if (tags.mod || tags['user-id'] === tags['room-id']) {
-        // Verifica se a mensagem começa com "!indica"
-        if (message.toLowerCase().startsWith('!indica')) {
-            // Extrai o nome do canal da mensagem
-            const channelName = message.split(' ')[1];
+// Função para buscar e adicionar vídeos à playlist(m!p)
+async function searchAndAddVideoByName(name) {
+    const apiKey = 'AIzaSyCNjDl65AiVsQC77GjfNKd-klVO1pO63PQ';
+    const url = `https://www.googleapis.com/youtube/v3/search?part=snippet&q=${encodeURIComponent(name)}&type=video&key=${apiKey}`;
+    
+    try {
+        const response = await fetch(url);
+        const data = await response.json();
+        
+        if (data.items.length > 0) {
+            const video = data.items[0];
+            const videoId = video.id.videoId;
+            const videoTitle = video.snippet.title;
+            
+            // Adiciona o vídeo à playlist
+            const addResponse = await fetch('http://localhost:3000/api/playlist', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ videoId, videoTitle })
+            });
 
-            // Verifica se o nome do canal foi fornecido
-            if (channelName) {
-                // Constrói o link do canal
-                const channelLink = `www.twitch.tv/${channelName}`;
-
-                // Envia a mensagem com o link do canal
-                client.say(channel, `Se está sendo indicado é pq o(a) streamer é foda, então deixa de preguiça e segue lá: PowerUpL ${channelLink} PowerUpR`);
+            if (addResponse.ok) {
+                return `Vídeo adicionado à playlist: ${videoTitle}`;
             } else {
-                // Se o nome do canal não foi fornecido, avisa o usuário
-                client.say(channel, 'Por favor, forneça o nome do canal após o comando !indica.');
+                return 'Erro ao adicionar o vídeo à playlist.';
             }
+        } else {
+            return 'Nenhum vídeo encontrado para o nome: ' + name;
+        }
+    } catch (error) {
+        console.error('Erro:', error);
+        return 'Erro ao buscar ou adicionar o vídeo.';
+    }
+}
+
+// Evento quando o bot recebe uma mensagem
+client.on('message', async (channel, tags, message, self) => {
+    if (self) return; // Ignora mensagens do próprio bot
+
+    if (message.startsWith('m!p')) {
+        const args = message.split(' ').slice(1).join(' ');
+        if (args) {
+            const response = await searchAndAddVideoByName(args);
+            sendMessageWithDelay(channel, response);
+        } else {
+            sendMessageWithDelay(channel, 'Por favor, forneça o nome do vídeo.');
         }
     }
 });
-
 
 /////////////////////////////////////////////////E-MAIL/////////////////////////////////////////////////////////
 
@@ -101,7 +135,7 @@ client.on('message', (channel, tags, message, self) => {
 const transporter = nodemailer.createTransport(emailConfig);
 
 client.on('connected', () => {
-    client.say(channel, 'A janta está pronta, A janta está pronta!!!');
+    sendMessageWithDelay(channel, 'A janta está pronta, A janta está pronta!!!');
 
     // Carregar comandos do banco de dados para a memória
     dbCommands.each("SELECT comando, resposta FROM comandos_chat", (err, row) => {
@@ -129,6 +163,7 @@ client.on('connected', () => {
 
 // Inicializando o contador de mortes fora da função de callback
 let deathCount = 0;
+
 
 client.on('message', (channel, user, message, self) => {
     if (self) return;
@@ -1114,4 +1149,4 @@ client.on('message', (channel, user, message, self) => {
             process.exit(0);
         });
     });
-});
+  });
